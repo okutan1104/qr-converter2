@@ -1,147 +1,228 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>QR変換ツール（旧→新）完全版</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>QR 変換ツール（カメラ＋画像）</title>
 <style>
-body {
-  font-family: sans-serif;
-  background: #f4f6f8;
-  text-align: center;
-  padding: 1.2rem;
-}
-h1 {
-  font-size: 1.3rem;
-  color: #333;
-  margin-bottom: 0.8rem;
-}
-#video {
-  width: 100%;
-  max-width: 360px;
-  border: 2px solid #ccc;
-  border-radius: 0.6rem;
-  display: none;
-}
-#result {
-  margin-top: 1rem;
-  font-size: 0.9rem;
-  word-break: break-all;
-}
-button {
-  margin-top: 0.5rem;
-  padding: 0.8rem 1.2rem;
-  border: none;
-  border-radius: 0.6rem;
-  background: #0078d7;
-  color: white;
-  font-size: 1rem;
-}
-button:hover {
-  background: #005fa3;
-}
-hr { margin: 1rem auto; width: 80%; }
-#newQR { margin-top: 1rem; }
-footer {
-  margin-top: 2rem;
-  color: #666;
-  font-size: 0.8rem;
-}
-input {
-  width: 90%;
-  max-width: 360px;
-  padding: 0.6rem;
-  border: 1px solid #ccc;
-  border-radius: 0.4rem;
-}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",sans-serif;margin:0;padding:1rem;background:#f6f7fb;color:#111}
+  h1{font-size:1.1rem;margin:0 0 .5rem}
+  #container{max-width:720px;margin:0 auto}
+  #video, canvas{width:100%;max-width:420px;border-radius:8px;border:1px solid #ccc;background:#fff}
+  .row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem}
+  button{padding:.6rem .9rem;border-radius:6px;border:0;background:#0078d7;color:#fff;cursor:pointer}
+  input[type=file]{padding:.5rem}
+  pre{background:#fff;padding:.5rem;border-radius:6px;border:1px solid #e3e3e3;overflow:auto}
+  #tips{font-size:.9rem;color:#444;margin-top:.5rem}
 </style>
 </head>
 <body>
-  <h1>📱 QRレイアウト変換ツール</h1>
+<div id="container">
+  <h1>📱 QR 変換ツール（カメラ & 画像アップロード）</h1>
+  <p>旧QRを読み取り、以下の形式で新QRを生成します。<br>
+     例1）<code>"2025/10/31","ARACRD705082","22","PARA00001765","SEIKEI"</code><br>
+     → <code>,,ARACRD705082,999,,22.000</code><br><br>
+     例2）<code>2025-10-16,532238,532238,2,KANSEIHIN,10</code><br>
+     → <code>,,532238,999,,10.000</code>
+  </p>
 
-  <button id="startBtn">📷 カメラ起動して旧QRを読み取る</button>
-  <br>
-  <video id="video" autoplay playsinline></video>
-
-  <hr>
-  <div>
-    <p>または手動入力：</p>
-    <input id="manualInput" placeholder='"2025/10/31","ARACRD705082","22","PARA00001765","SEIKEI"'>
-    <button id="convertBtn">変換して新QR生成</button>
+  <div id="cameraArea">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="row">
+      <button id="startCamera">カメラ開始</button>
+      <button id="stopCamera">カメラ停止</button>
+      <button id="useImageMode">画像アップロードを使う</button>
+    </div>
   </div>
 
-  <div id="result"></div>
-  <div id="newQR"></div>
+  <div style="margin-top:.8rem">
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
 
-  <footer>© 2025 QR Layout Converter</footer>
+  <div id="tips">※ カメラは HTTPS または localhost でのみ動作します。カメラが起動しない場合は画像アップロードを使ってください。</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+  <hr style="margin:1rem 0">
 
-  <script>
+  <div id="resultArea">
+    <h2 style="font-size:1rem;margin:.5rem 0">結果</h2>
+    <div id="oldText"><strong>旧QR:</strong><pre id="oldPre">— まだ読み取られていません —</pre></div>
+    <div id="newText" style="margin-top:.6rem"><strong>新QRテキスト:</strong><pre id="newPre">—</pre></div>
+    <canvas id="outQR" width="300" height="300" style="display:block;margin-top:.6rem"></canvas>
+    <div class="row" style="margin-top:.6rem">
+      <button id="downloadBtn">新QRを画像で保存</button>
+      <button id="copyBtn">新QRテキストをコピー</button>
+    </div>
+  </div>
+</div>
+
+<!-- ライブラリ（CDN） -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+
+<script>
+(async function(){
   const video = document.getElementById('video');
-  const startBtn = document.getElementById('startBtn');
-  const convertBtn = document.getElementById('convertBtn');
-  const manualInput = document.getElementById('manualInput');
-  const resultDiv = document.getElementById('result');
-  const newQRDiv = document.getElementById('newQR');
-  let scanner = null;
+  const startCameraBtn = document.getElementById('startCamera');
+  const stopCameraBtn = document.getElementById('stopCamera');
+  const fileInput = document.getElementById('fileInput');
+  const outQR = document.getElementById('outQR');
+  const oldPre = document.getElementById('oldPre');
+  const newPre = document.getElementById('newPre');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const useImageModeBtn = document.getElementById('useImageMode');
 
-  function convertOldToNew(oldText) {
-    if (!oldText) return "";
-    const parts = oldText.replaceAll('"', '').split(',');
-    const code = parts[1] || '';
-    const num = parseFloat(parts[2] || '0');
-    const newCode = code.replace(/82$/, '72');
-    const newNum = num.toFixed(3);
-    const newLayout = `,,${newCode},999,,${newNum}`;
-    return newLayout;
+  let stream = null;
+  let scanning = false;
+  let scanReq = null;
+
+  function formatTo3Decimal(val){
+    if(val === undefined || val === null) return '';
+    const s = String(val).trim();
+    if(s === '') return '';
+    const num = Number(s.replace(/[^0-9.\-]/g,''));
+    if(!isNaN(num)) return num.toFixed(3);
+    return s;
   }
 
-  function showResult(oldText){
-    const newText = convertOldToNew(oldText);
-    resultDiv.innerHTML = `
-      <div style="margin-bottom:.5rem;color:#333;">旧QR内容：</div>
-      <div style="color:#555">${oldText}</div>
-      <hr>
-      <div style="color:#333;">➡ 新QR内容：</div>
-      <div style="font-weight:bold;color:green;">${newText}</div>
-    `;
-    newQRDiv.innerHTML = "";
-    new QRCode(newQRDiv, {
-      text: newText,
-      width: 220,
-      height: 220,
-      correctLevel: QRCode.CorrectLevel.H
+  // ✅ 修正版: 2種類のQR形式に対応
+  function convertOldToNew(text){
+    try {
+      const t = text.trim();
+      let parts = [];
+
+      if (t.includes('"')) {
+        // ダブルクォートで囲まれた形式
+        const tmp = t.replace(/^"+|"+$/g, '').split('","');
+        parts = tmp.map(x => x.replace(/^"+|"+$/g, '').trim());
+      } else {
+        // クォートなしCSV形式
+        parts = t.split(',').map(x => x.trim());
+      }
+
+      if (parts.length < 3) return '変換エラー（要素不足）';
+
+      // 共通変換ロジック
+      const codeA = (parts[1] || '').trim();
+      const qtyRaw = (parts[parts.length - 1] || '').trim();
+      const newQty = '999';
+      const newVal = formatTo3Decimal(qtyRaw);
+      return ['', '', codeA, newQty, '', newVal].join(',');
+
+    } catch (e) {
+      console.error(e);
+      return '変換エラー';
+    }
+  }
+
+  function drawQRCode(text){
+    outQR.getContext('2d').clearRect(0,0,outQR.width,outQR.height);
+    QRCode.toCanvas(outQR, text, { width: Math.min(300, outQR.width) }, function(err){
+      if(err) console.error(err);
     });
   }
 
-  async function startScan() {
-    if (scanner) {
-      scanner.stop();
-      scanner.destroy();
-      scanner = null;
-      startBtn.textContent = "📷 カメラ起動して旧QRを読み取る";
-      video.style.display = "none";
-      return;
-    }
-    video.style.display = "block";
-    scanner = new QrScanner(video, result => {
-      const oldText = result.data;
-      scanner.stop();
-      video.style.display = "none";
-      startBtn.textContent = "再スキャン";
-      showResult(oldText);
-    }, { returnDetailedScanResult: true });
-    await scanner.start();
-    startBtn.textContent = "スキャン停止";
+  function processDecoded(text){
+    oldPre.textContent = text;
+    const newText = convertOldToNew(text);
+    newPre.textContent = newText;
+    drawQRCode(newText);
   }
 
-  startBtn.onclick = startScan;
-  convertBtn.onclick = () => {
-    const txt = manualInput.value.trim();
-    if (txt) showResult(txt);
-  };
-  </script>
+  async function startCamera(){
+    if(scanning) return;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream;
+      await video.play();
+      scanning = true;
+      scanLoop();
+    }catch(err){
+      alert('カメラを開始できませんでした。\n（HTTPS での公開が必要です）\n' + err);
+      console.error(err);
+    }
+  }
+
+  function stopCamera(){
+    scanning = false;
+    if(scanReq) cancelAnimationFrame(scanReq);
+    if(stream){
+      stream.getTracks().forEach(t=>t.stop());
+      stream = null;
+    }
+    video.pause();
+    video.srcObject = null;
+  }
+
+  function scanLoop(){
+    if(!scanning) return;
+    const canvas = document.createElement('canvas');
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if(w===0 || h===0){ scanReq = requestAnimationFrame(scanLoop); return; }
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video,0,0,w,h);
+    const imageData = ctx.getImageData(0,0,w,h);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    if(code && code.data){
+      stopCamera();
+      processDecoded(code.data);
+      return;
+    }
+    scanReq = requestAnimationFrame(scanLoop);
+  }
+
+  fileInput.addEventListener('change', (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    const img = new Image();
+    const url = URL.createObjectURL(f);
+    img.onload = ()=> {
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img,0,0);
+      const id = ctx.getImageData(0,0,c.width,c.height);
+      const code = jsQR(id.data, id.width, id.height);
+      if(code && code.data){
+        processDecoded(code.data);
+      } else {
+        alert('QRが見つかりませんでした。画像を拡大して再試行してください。');
+      }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = ()=> { alert('画像の読み込みに失敗しました'); URL.revokeObjectURL(url); };
+    img.src = url;
+  });
+
+  downloadBtn.addEventListener('click', ()=>{
+    const link = document.createElement('a');
+    link.download = 'new_qr.png';
+    link.href = outQR.toDataURL('image/png');
+    link.click();
+  });
+
+  copyBtn.addEventListener('click', async ()=>{
+    const text = newPre.textContent || '';
+    try{
+      await navigator.clipboard.writeText(text);
+      alert('新QRテキストをコピーしました');
+    }catch(e){
+      prompt('以下をコピーしてください（手動）', text);
+    }
+  });
+
+  startCameraBtn.addEventListener('click', ()=>startCamera());
+  stopCameraBtn.addEventListener('click', ()=>stopCamera());
+  useImageModeBtn.addEventListener('click', ()=> fileInput.scrollIntoView({behavior:'smooth'}));
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    document.getElementById('tips').textContent = '※ カメラが検出されません。画像アップロード（下）をお使いください。';
+  }
+})();
+</script>
 </body>
 </html>

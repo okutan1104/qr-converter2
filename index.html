@@ -85,28 +85,34 @@
     return s;
   }
 
-  // ✅ 修正版: 2種類のQR形式に対応
+  // ✅ 完成版：例1（クォート付き）と例2（CSV形式）の両方対応
   function convertOldToNew(text){
     try {
       const t = text.trim();
-      let parts = [];
+      if (t === '') return '変換エラー（空データ）';
 
-      if (t.includes('"')) {
-        // ダブルクォートで囲まれた形式
-        const tmp = t.replace(/^"+|"+$/g, '').split('","');
-        parts = tmp.map(x => x.replace(/^"+|"+$/g, '').trim());
-      } else {
-        // クォートなしCSV形式
-        parts = t.split(',').map(x => x.trim());
-      }
+      // クォート付き・なし両対応の分割処理
+      const parts = t.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(x =>
+        x.replace(/^"|"$/g, '').trim()
+      ) || [];
 
       if (parts.length < 3) return '変換エラー（要素不足）';
 
-      // 共通変換ロジック
+      // 共通ロジック
       const codeA = (parts[1] || '').trim();
-      const qtyRaw = (parts[parts.length - 1] || '').trim();
+      let qtyRaw = '';
+
+      // 例1のような形式では3番目の要素が数量
+      // 例2のような形式では末尾が数量
+      if (!isNaN(Number(parts[2]))) {
+        qtyRaw = parts[2];
+      } else {
+        qtyRaw = parts[parts.length - 1];
+      }
+
       const newQty = '999';
       const newVal = formatTo3Decimal(qtyRaw);
+
       return ['', '', codeA, newQty, '', newVal].join(',');
 
     } catch (e) {
